@@ -1,4 +1,4 @@
-variable "mumbai_instance_type" {
+variable "Mumbai-instance" {
     default = "t2.micro"
   
 }

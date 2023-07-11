@@ -31,7 +31,8 @@ resource "aws_vpc" "Mumbai-VPC" {
   }
 }
 
-# creating subnet resources
+
+# creating public subnet resources
 
 resource "aws_subnet" "Mumbai-subnet-1a" {
   vpc_id     = aws_vpc.Mumbai-VPC.id
@@ -55,18 +56,31 @@ resource "aws_subnet" "Mumbai-subnet-1b" {
   }
 }
 
-resource "aws_subnet" "Mumbai-subnet-1c" {
-  vpc_id     = aws_vpc.Mumbai-VPC.id
-  cidr_block = "10.10.2.0/24"
-  availability_zone = "ap-south-1c"
-  map_public_ip_on_launch = "true"
+
+#creating private subnet resource
+
+resource "aws_subnet" "Mumbai-private_subnet" {
+  vpc_id             = aws_vpc.Mumbai-VPC.id
+  cidr_block         = "10.10.2.0/24"
+  map_public_ip_on_launch = "false"
 
   tags = {
-    Name = "Mumbai-subnet-1c"
+    Name = "Mumbai-priv-subnet"
   }
 }
 
-# creating ec2 instances
+resource "aws_subnet" "Mumbai-private_subnet-1" {
+  vpc_id             = aws_vpc.Mumbai-VPC.id
+  cidr_block         = "10.10.3.0/24"
+  map_public_ip_on_launch = "false"
+
+  tags = {
+    Name = "Mumbai-priv-subnet-1"
+  }
+}
+
+
+ # creating ec2 instances in public subnet
 
 resource "aws_instance" "Mumbai-instance" {
   ami           = "ami-0f5ee92e2d63afc18"
@@ -76,24 +90,27 @@ resource "aws_instance" "Mumbai-instance" {
   associate_public_ip_address = "true"
   vpc_security_group_ids = [aws_security_group.mumbai_SG_ssh_http.id]
 
+
   tags = {
     Name = "Mumbai-instance-pro"
   }
+  
 }
 
-resource "aws_instance" "Mumbai-instance-1" {
+#creating ec2 instance in private subnet
+
+resource "aws_instance" "Private-instance" {
   ami           = "ami-0f5ee92e2d63afc18"
   instance_type = "t2.micro"
   key_name = aws_key_pair.mumbai-key-pair.id
-  subnet_id = aws_subnet.Mumbai-subnet-1b.id
-  associate_public_ip_address = "true"
+  subnet_id = aws_subnet.Mumbai-private_subnet.id
+  associate_public_ip_address = "false"
   vpc_security_group_ids = [aws_security_group.mumbai_SG_ssh_http.id]
 
   tags = {
-    Name = "Mumbai-instance-pro-1"
+    Name = "Mumbai-private-instance"
   }
 }
-
 
 # creating key-pair resource
 
@@ -173,6 +190,49 @@ resource "aws_route_table_association" "mumbai-RT-associaciation-2" {
   route_table_id = aws_route_table.mumbai-RT.id
 }
 
+# creating Elastic IP for NAT Gateway
+
+resource "aws_eip" "Mumbai_eip" {
+  vpc      = true
+  depends_on = [aws_internet_gateway.mumbai-Igw]
+
+  tags = {
+    Name = "Mumbai-EIP"
+  }
+}
+
+# creating NAT gateway 
+
+resource "aws_nat_gateway" "Mumbai-NAT" {
+  allocation_id = aws_eip.Mumbai_eip.id
+  subnet_id     = aws_subnet.Mumbai-subnet-1a.id
+
+  tags = {
+    Name = "Mumbai-NAT_Gateway"
+  }
+}
+
+# private Route Table
+
+resource "aws_route_table" "private_RT" {
+  vpc_id = aws_vpc.Mumbai-VPC.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_nat_gateway.Mumbai-NAT.id
+  }
+
+  tags = {
+    Name = "Mumbai-Private-RT"
+  }
+}
+
+resource "aws_route_table_association" "Private" {
+  subnet_id      = aws_subnet.Mumbai-private_subnet.id
+  route_table_id = aws_route_table.private_RT.id
+}
+
+
 # creating Target group
 
 resource "aws_lb_target_group" "Mumbai-TG" {
@@ -188,12 +248,6 @@ resource "aws_lb_target_group_attachment" "mumbai-TG-attachment-1" {
   port             = 80
 }
 
-
-resource "aws_lb_target_group_attachment" "mumbai-TG-attachment-2" {
-  target_group_arn = aws_lb_target_group.Mumbai-TG.id
-  target_id        = aws_instance.Mumbai-instance-1.id
-  port             = 80
-}
 
 # creating load balancer listener
 
